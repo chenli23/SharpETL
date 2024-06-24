@@ -9,7 +9,7 @@ import com.github.sharpdata.sharpetl.core.syntax.WorkflowStep
 
 // $COVERAGE-OFF$
 class FakeWorkflowInterpreter extends WorkflowInterpreter[Seq[_]] {
-  override def listFiles(steps: List[WorkflowStep], step: WorkflowStep): List[String] = List()
+  override def listFiles(step: WorkflowStep): List[String] = List()
 
   override def deleteSource(step: WorkflowStep): Unit = ()
 
@@ -35,8 +35,8 @@ class FakeWorkflowInterpreter extends WorkflowInterpreter[Seq[_]] {
 
   override def applicationId(): String = "fake-app-001"
 
-  override def transformListFiles(filePaths: List[String]): Seq[_] = ???
-
   override def dropUnusedCols(df: Seq[_], cols: String): Seq[_] = ???
+
+  override def union(left: Seq[_], right: Seq[_]): Seq[_] = left ++ right
 }
 // $COVERAGE-ON$

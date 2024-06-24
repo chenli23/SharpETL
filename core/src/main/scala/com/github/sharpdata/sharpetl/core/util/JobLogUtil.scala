@@ -1,10 +1,8 @@
 package com.github.sharpdata.sharpetl.core.util
 
 import com.github.sharpdata.sharpetl.core.repository.model.{JobLog, JobStatus}
-import com.github.sharpdata.sharpetl.core.util.Constants.{IncrementalType, DataSourceType}
-import com.github.sharpdata.sharpetl.core.repository.model.{JobLog, JobStatus}
 import com.github.sharpdata.sharpetl.core.util.Constants.PeriodType.{DAY, HOUR}
-import com.github.sharpdata.sharpetl.core.util.Constants.{IncrementalType, DataSourceType}
+import com.github.sharpdata.sharpetl.core.util.Constants.{DataSourceType, IncrementalType}
 import com.github.sharpdata.sharpetl.core.util.DateUtil.{L_YYYY_MM_DD_HH_MM_SS, YYYYMMDDHHMMSS}
 
 import java.time.LocalDateTime
@@ -62,7 +60,7 @@ object JobLogUtil {
 
   implicit class JobLogFormatter(jobLog: JobLog) {
     def formatDataRangeStart(): String =
-      jobLog.incrementalType match {
+      jobLog.logDrivenType match {
         case IncrementalType.AUTO_INC_ID => jobLog.dataRangeStart
         case IncrementalType.KAFKA_OFFSET => jobLog.dataRangeStart
         case IncrementalType.UPSTREAM => jobLog.dataRangeStart
@@ -70,7 +68,7 @@ object JobLogUtil {
       }
 
     def formatDataRangeEnd(): String =
-      jobLog.incrementalType match {
+      jobLog.logDrivenType match {
         case IncrementalType.AUTO_INC_ID => jobLog.dataRangeEnd
         case IncrementalType.KAFKA_OFFSET => jobLog.dataRangeEnd
         case IncrementalType.UPSTREAM => jobLog.dataRangeEnd
@@ -78,15 +76,15 @@ object JobLogUtil {
       }
 
     def jobTimeBase(jobLog: JobLog): Boolean = {
-      !jobLog.incrementalType.equals(IncrementalType.AUTO_INC_ID) &&
-        !jobLog.incrementalType.equals(IncrementalType.KAFKA_OFFSET) &&
-        !jobLog.incrementalType.equals(IncrementalType.UPSTREAM)
+      !jobLog.logDrivenType.equals(IncrementalType.AUTO_INC_ID) &&
+        !jobLog.logDrivenType.equals(IncrementalType.KAFKA_OFFSET) &&
+        !jobLog.logDrivenType.equals(IncrementalType.UPSTREAM)
     }
 
     def defaultTimePartition(): scala.collection.mutable.Map[String, String] = {
       val timePartitionArg = scala.collection.mutable.Map[String, String]()
 
-      if (jobLog.incrementalType == null || jobTimeBase(jobLog)) {
+      if (jobLog.logDrivenType == null || jobTimeBase(jobLog)) {
         val startDate = LocalDateTime.parse(jobLog.dataRangeStart, YYYYMMDDHHMMSS)
         timePartitionArg.put("${YEAR}", startDate.getYear.toString)
         val month = startDate.getMonthValue
@@ -95,14 +93,14 @@ object JobLogUtil {
         } else {
           timePartitionArg.put("${MONTH}", month.toString)
         }
-        if (jobLog.jobPeriod % DAY == 0) {
+        if (jobLog.period % DAY == 0) {
           val day = startDate.getDayOfMonth
           if (day < 10) {
             timePartitionArg.put("${DAY}", s"0$day")
           } else {
             timePartitionArg.put("${DAY}", day.toString)
           }
-        } else if (jobLog.jobPeriod % HOUR == 0) {
+        } else if (jobLog.period % HOUR == 0) {
           val hour = startDate.getHour
           if (hour < 10) {
             timePartitionArg.put("${HOUR}", s"0$hour")

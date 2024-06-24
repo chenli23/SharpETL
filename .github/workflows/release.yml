@@ -38,6 +38,12 @@ jobs:
           - scalaVersion: 2.13
             sparkVersion: 3.3.0
             scalaCompt: 2.13.7
+          - scalaVersion: 2.13
+            sparkVersion: 3.4.0
+            scalaCompt: 2.13.10
+          - scalaVersion: 2.13
+            sparkVersion: 3.5.0
+            scalaCompt: 2.13.12
     steps:
       - uses: actions/checkout@v2
 
@@ -51,17 +57,30 @@ jobs:
           java-version: '8'
           distribution: 'adopt'
 
+      - name: Setup Gradle Dependencies Cache
+        uses: actions/cache@v2.1.6
+        with:
+          path: ~/.gradle/caches
+          key: ${{ runner.os }}-gradle-caches--PscalaVersion=${{ matrix.scalaVersion }} -PsparkVersion=${{ matrix.sparkVersion }} -PscalaCompt=${{ matrix.scalaCompt }} -${{ hashFiles('**/*.gradle', '**/*.gradle.kts') }}
+
+      - name: Setup Gradle Wrapper Cache
+        uses: actions/cache@v2.1.6
+        with:
+          path: ~/.gradle/wrapper
+          key: ${{ runner.os }}-gradle-wrapper-${{ hashFiles('**/gradle/wrapper/gradle-wrapper.properties') }}
+
       - name: Style Check
         run: ./gradlew scalastyleMainCheck -PscalaVersion=${{ matrix.scalaVersion }} -PsparkVersion=${{ matrix.sparkVersion }} -PscalaCompt=${{ matrix.scalaCompt }}
 
       - name: Test
-        run: ./gradlew test buildJars aggregateScoverage -PscalaVersion=${{ matrix.scalaVersion }} -PsparkVersion=${{ matrix.sparkVersion }} -PscalaCompt=${{ matrix.scalaCompt }}
+        run: ./gradlew test buildJars -PscalaVersion=${{ matrix.scalaVersion }} -PsparkVersion=${{ matrix.sparkVersion }} -PscalaCompt=${{ matrix.scalaCompt }}
+#        run: ./gradlew test buildJars aggregateScoverage -PscalaVersion=${{ matrix.scalaVersion }} -PsparkVersion=${{ matrix.sparkVersion }} -PscalaCompt=${{ matrix.scalaCompt }}
 
-      - uses: codecov/codecov-action@v2
-        with:
-          token: ${{ secrets.CODECOV_TOKEN }} # not required for public repos
-          directory: ./build/reports/scoverage/
-          verbose: true
+#      - uses: codecov/codecov-action@v2
+#        with:
+#          token: ${{ secrets.CODECOV_TOKEN }} # not required for public repos
+#          directory: ./build/reports/scoverage/
+#          verbose: true
 
       - name: Upload Release Asset
         env:

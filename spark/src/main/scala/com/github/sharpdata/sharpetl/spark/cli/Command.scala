@@ -2,8 +2,8 @@ package com.github.sharpdata.sharpetl.spark.cli
 
 import com.github.sharpdata.sharpetl.modeling.cli.{GenerateDwdStepCommand, GenerateSqlFiles}
 import com.github.sharpdata.sharpetl.spark.utils.JavaVersionChecker
-import com.github.sharpdata.sharpetl.core.api.WFInterpretingResult.checkSuccessOrThrow
-import com.github.sharpdata.sharpetl.core.api.{LogDrivenInterpreter, WFInterpretingResult}
+import com.github.sharpdata.sharpetl.core.api.WfEvalResult.throwFirstException
+import com.github.sharpdata.sharpetl.core.api.{LogDrivenInterpreter, WfEvalResult}
 import com.github.sharpdata.sharpetl.core.cli.{BatchJobCommand, EncryptionCommand, SingleJobCommand}
 import com.github.sharpdata.sharpetl.core.notification.NotificationUtil
 import com.github.sharpdata.sharpetl.core.quality.QualityCheckRuleConfig.readQualityCheckRules
@@ -21,18 +21,18 @@ class SingleSparkJobCommand extends SingleJobCommand {
     ETLConfig.extraParam = extraParams
     ETLConfig.setPropertyPath(propertyPath, env)
     val etlDatabaseType = JDBCUtil.dbType
+    val interpreter = getSparkInterpreter(local, wfName, releaseResource, etlDatabaseType, readQualityCheckRules())
     migrate()
-    val interpreter = getSparkInterpreter(local, jobName, releaseResource, etlDatabaseType, readQualityCheckRules())
     JavaVersionChecker.checkJavaVersion()
     try {
-      val wfInterpretingResult: WFInterpretingResult = LogDrivenInterpreter(
-        WorkflowReader.readWorkflow(jobName),
+      val wfInterpretingResult: WfEvalResult = LogDrivenInterpreter(
+        WorkflowReader.readWorkflow(wfName),
         interpreter,
         jobLogAccessor = jobLogAccessor,
         command = this
-      ).interpreting()
+      ).eval()
       new NotificationUtil(jobLogAccessor).notify(Seq(wfInterpretingResult))
-      checkSuccessOrThrow(Seq(wfInterpretingResult))
+      throwFirstException(Seq(wfInterpretingResult))
     } finally {
       interpreter.close()
     }
@@ -50,9 +50,9 @@ class BatchSparkJobCommand extends BatchJobCommand {
     val etlDatabaseType = JDBCUtil.dbType
     // val logDrivenInterpreters = if (excelOptions != null) getJobsFromExcel(etlDatabaseType) else getInterpretersFromSqlFile(etlDatabaseType)
     val logDrivenInterpreters = getInterpretersFromSqlFile(etlDatabaseType)
-    val batchJobResult: Seq[WFInterpretingResult] =
+    val batchJobResult: Seq[WfEvalResult] =
       try {
-        logDrivenInterpreters.map(_.interpreting())
+        logDrivenInterpreters.map(_.eval())
       } finally {
         logDrivenInterpreters.headOption.foreach(_.workflowInterpreter.close())
       }
@@ -68,17 +68,17 @@ class BatchSparkJobCommand extends BatchJobCommand {
          |""".stripMargin)
     new NotificationUtil(jobLogAccessor).notify(batchJobResult)
     if (failedCount > 0) {
-      checkSuccessOrThrow(batchJobResult)
+      throwFirstException(batchJobResult)
     }
   }
 
   def getInterpretersFromSqlFile(etlDatabaseType: String): Seq[LogDrivenInterpreter] = {
-    sqlFileOptions.jobNames
-      .map(jobName => {
-        val interpreter = getSparkInterpreter(local, jobName, releaseResource, etlDatabaseType, readQualityCheckRules())
+    sqlFileOptions.wfNames
+      .map(wfName => {
+        val interpreter = getSparkInterpreter(local, wfName, releaseResource, etlDatabaseType, readQualityCheckRules())
         JavaVersionChecker.checkJavaVersion()
         LogDrivenInterpreter(
-          WorkflowReader.readWorkflow(jobName),
+          WorkflowReader.readWorkflow(wfName),
           interpreter,
           jobLogAccessor = jobLogAccessor,
           command = this

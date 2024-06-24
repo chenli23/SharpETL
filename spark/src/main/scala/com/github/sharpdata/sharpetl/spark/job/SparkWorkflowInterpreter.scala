@@ -25,6 +25,8 @@ import org.apache.spark.storage.StorageLevel
 import org.apache.spark.streaming.{Seconds, StreamingContext}
 
 import java.time.LocalDateTime
+import scala.collection.immutable
+import scala.jdk.CollectionConverters._
 import scala.util.control.NonFatal
 
 class SparkWorkflowInterpreter(override val spark: SparkSession,
@@ -32,31 +34,20 @@ class SparkWorkflowInterpreter(override val spark: SparkSession,
                                override val qualityCheckAccessor: QualityCheckAccessor)
   extends SparkQualityCheck(spark, dataQualityCheckRules, qualityCheckAccessor) with WorkflowInterpreter[DataFrame] {
 
-  override def executeJob(steps: List[WorkflowStep],
-                          jobLog: JobLog,
-                          variables: Variables,
-                          start: String,
-                          end: String): Unit = {
+
+  override def evalSteps(steps: List[WorkflowStep], jobLog: JobLog, variables: Variables, start: String, end: String): Unit = {
     val batchStepNum = countBatchStepNum(steps)
     if (batchStepNum > 0) {
-      executeBatchSteps(steps.take(batchStepNum), jobLog, variables, start, end)
+      super.evalSteps(steps, jobLog, variables, start, end)
+      cleanUpTempTableFromMemory()
     }
     if (batchStepNum < steps.length) {
       executeMicroBatchSteps(steps.slice(batchStepNum, steps.length), jobLog, variables, start, end)
     }
   }
 
-  def executeBatchSteps(batchSteps: List[WorkflowStep],
-                        jobLog: JobLog,
-                        variables: Variables,
-                        start: String,
-                        end: String): Unit = {
-    executeSteps(batchSteps, jobLog, variables, start, end)
-    cleanUpTempTableInMemory()
-  }
-
-  private def cleanUpTempTableInMemory(): Unit = {
-    if (Environment.current != "test") {
+  private def cleanUpTempTableFromMemory(): Unit = {
+    if (Environment.CURRENT != "test") {
       val tempTableNames = spark.catalog.listTables().filter(_.isTemporary)
       tempTableNames.collect().foreach(it => spark.catalog.dropTempView(it.name))
     }
@@ -79,7 +70,7 @@ class SparkWorkflowInterpreter(override val spark: SparkSession,
 
     StreamingStep.executeStreamingStep(streamingDataSourceConfig, stream, (df: DataFrame) => {
       executeWrite(jobLog, df, firstMicroBatchStep, variables)
-      executeSteps(microBatchSteps.tail, jobLog, variables, start, end)
+      evalSteps(microBatchSteps.tail, jobLog, variables, start, end)
 
       jobLog.setLastUpdateTime(LocalDateTime.now())
       jobLogAccessor.update(jobLog)
@@ -97,11 +88,7 @@ class SparkWorkflowInterpreter(override val spark: SparkSession,
     batchStepNum
   }
 
-  override def transformListFiles(filePaths: List[String]): DataFrame = {
-    sparkSession.sql(s"SELECT '${filePaths.mkString(",")}' AS `FILE_PATHS`")
-  }
-
-  override def listFiles(steps: List[WorkflowStep], step: WorkflowStep): List[String] = {
+  override def listFiles(step: WorkflowStep): List[String] = {
     val conf = step.source.asInstanceOf[FileDataSourceConfig]
 
     val files: List[String] = if (!isNullOrEmpty(conf.filePaths)) {
@@ -124,13 +111,11 @@ class SparkWorkflowInterpreter(override val spark: SparkSession,
         case DataSourceType.SCP =>
           ScpDataSource.listFilePath(step)
         case _ =>
-          throw FileDataSourceConfigErrorException(
-            s"Not supported data source type ${conf.dataSourceType}"
-          )
+          throw FileDataSourceConfigErrorException(s"Not supported data source type ${conf.dataSourceType}")
       }
     }
 
-    ETLLogger.info(s"Files need to be processed:\n ${files.mkString(",\n")}")
+    ETLLogger.info(s"Files will to be processed:\n ${files.mkString(",\n")}")
     files
   }
 
@@ -178,7 +163,7 @@ class SparkWorkflowInterpreter(override val spark: SparkSession,
 
   override def executeWrite(jobLog: JobLog, df: DataFrame, step: WorkflowStep, variables: Variables): Unit = {
     val stepLog = jobLog.getStepLog(step.step)
-    val incrementalType = jobLog.incrementalType
+    val incrementalType = jobLog.logDrivenType
     ETLLogger.info(s"incremental type is ${incrementalType}")
     if (incrementalType == IncrementalType.DIFF && df.count() > incrementalDiffModeDataLimit.toLong) {
       throw IncrementalDiffModeTooMuchDataException(
@@ -274,4 +259,32 @@ class SparkWorkflowInterpreter(override val spark: SparkSession,
   }
 
   override def applicationId(): String = sparkSession.sparkContext.applicationId
+
+  override def executeSqlToVariables(sql: String): List[Map[String, String]] = {
+    val data: immutable.Seq[Map[String, String]] =
+      sparkSession.sql(sql).toLocalIterator().asScala.toList
+        .map(it =>
+          it.getValuesMap(it.schema.fieldNames)
+        )
+    data
+      .map(
+        it =>
+          it.map {
+            case (key, value) => ("${" + key + "}", value)
+          }
+      )
+      .toList
+  }
+
+  override def union(left: DataFrame, right: DataFrame): DataFrame = {
+    if (left != null && right != null) {
+      left.union(right)
+    } else if (left == null && right == null) {
+      null // scalastyle:ignore
+    } else if (left == null) {
+      right
+    } else {
+      left
+    }
+  }
 }

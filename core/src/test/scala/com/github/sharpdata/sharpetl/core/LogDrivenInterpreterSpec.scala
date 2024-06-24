@@ -10,7 +10,7 @@ import com.github.sharpdata.sharpetl.core.test.FakeWorkflowInterpreter
 import com.github.sharpdata.sharpetl.core.util.Constants.IncrementalType
 import com.github.sharpdata.sharpetl.core.util.Constants.Job.nullDataTime
 import com.github.sharpdata.sharpetl.core.util.DateUtil.LocalDateTimeToBigInt
-import com.github.sharpdata.sharpetl.core.util.StringUtil.BigIntConverter
+import com.github.sharpdata.sharpetl.core.util.StringUtil.{BigIntConverter, uuid}
 import org.mockito.ArgumentMatchers.anyString
 import org.mockito.MockitoSugar.{mock, when}
 import org.scalatest.flatspec._
@@ -41,14 +41,14 @@ class LogDrivenInterpreterSpec extends AnyFlatSpec with should.Matchers {
     it should s"not schedule when last run 1 sec ago: $period" in {
       val prevDataEndTime = now.minus(1L * period, ChronoUnit.SECONDS)
       val logDrivenJob: LogDrivenInterpreter = setup(prevDataEndTime, period)
-      val unexecutedQueue = logDrivenJob.unexecutedQueue()
+      val unexecutedQueue = logDrivenJob.logDrivenPlan()
       unexecutedQueue.isEmpty should be(true)
     }
 
     it should s"schedule 1 job: $period" in {
       val prevDataEndTime = now.minus(1L * period, ChronoUnit.MINUTES)
       val logDrivenJob: LogDrivenInterpreter = setup(prevDataEndTime, period)
-      val unexecutedQueue = logDrivenJob.unexecutedQueue()
+      val unexecutedQueue = logDrivenJob.logDrivenPlan()
       unexecutedQueue.size should be(1)
       unexecutedQueue.head.dataRangeStart.asBigInt should be(prevDataEndTime.asBigInt())
       unexecutedQueue.head.dataRangeEnd.asBigInt should be(prevDataEndTime.plus(1L * period, ChronoUnit.MINUTES).asBigInt())
@@ -61,7 +61,7 @@ class LogDrivenInterpreterSpec extends AnyFlatSpec with should.Matchers {
 
       val prevDataEndTime = now.minus(1 * period, ChronoUnit.MINUTES).minus(1, ChronoUnit.SECONDS)
       val logDrivenJob: LogDrivenInterpreter = setup(prevDataEndTime, period)
-      val unexecutedQueue = logDrivenJob.unexecutedQueue()
+      val unexecutedQueue = logDrivenJob.logDrivenPlan()
       unexecutedQueue.size should be(1)
       unexecutedQueue.head.dataRangeStart.asBigInt should be(prevDataEndTime.asBigInt())
       unexecutedQueue.head.dataRangeEnd.asBigInt should be(prevDataEndTime.plus(1L * period, ChronoUnit.MINUTES).asBigInt())
@@ -73,7 +73,7 @@ class LogDrivenInterpreterSpec extends AnyFlatSpec with should.Matchers {
     it should s"schedule 2 job when last job run 2 time unit ago: $period" in {
       val prevDataEndTime = now.minus(2 * period, ChronoUnit.MINUTES)
       val logDrivenJob: LogDrivenInterpreter = setup(prevDataEndTime, period)
-      val unexecutedQueue = logDrivenJob.unexecutedQueue()
+      val unexecutedQueue = logDrivenJob.logDrivenPlan()
       unexecutedQueue.size should be(2)
       unexecutedQueue.head.dataRangeStart.asBigInt should be(prevDataEndTime.asBigInt())
       unexecutedQueue.head.dataRangeEnd.asBigInt should be(prevDataEndTime.plus(1L * period, ChronoUnit.MINUTES).asBigInt())
@@ -103,7 +103,7 @@ class LogDrivenInterpreterSpec extends AnyFlatSpec with should.Matchers {
     val command = new TestJobCommand()
     command.once = true
     val logDrivenJob = LogDrivenInterpreter(
-      Workflow("jobName", execPeriod.toString, "incremental", "timewindow", null, null, null, -1, null, false, null, Map(), Nil), // scalastyle:off
+      Workflow("workflowName", execPeriod.toString, "incremental", "timewindow", null, null, null, -1, null, false, null, Map(), Nil), // scalastyle:off
       new FakeWorkflowInterpreter(),
       jobLogAccessor = jobLogAccessor,
       command = command
@@ -112,16 +112,16 @@ class LogDrivenInterpreterSpec extends AnyFlatSpec with should.Matchers {
   }
 
   private def mockJobLogAccessor(jobLogAccessor: JobLogAccessor, prevDataEndTime: LocalDateTime, execPeriod: Int): Any = {
-    when(jobLogAccessor.lastSuccessExecuted("jobName")).thenReturn(
+    when(jobLogAccessor.lastSuccessExecuted("workflowName")).thenReturn(
       new JobLog(
-        jobId = 0, jobName = "jobName",
-        jobPeriod = execPeriod, jobScheduleId = "jobScheduleId",
+        jobId = uuid, workflowName = "workflowName",
+        period = execPeriod, jobName = "workflowName",
         dataRangeStart = "0", dataRangeEnd = prevDataEndTime.asBigInt().toString,
         jobStartTime = nullDataTime, jobEndTime = nullDataTime,
         status = RUNNING, createTime = now,
         lastUpdateTime = now,
-        IncrementalType.TIMEWINDOW,
-        "", "fake-app-001", ""
+        "",
+        IncrementalType.TIMEWINDOW, "","fake-app-001", "project", ""
       )
     )
     when(jobLogAccessor.isAnotherJobRunning(anyString())).thenReturn(null)

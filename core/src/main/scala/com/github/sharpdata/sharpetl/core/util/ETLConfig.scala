@@ -118,6 +118,8 @@ object ETLConfig {
         Source.fromURL(propertyPath)
       } else if (propertyPath.toLowerCase.startsWith("hdfs")) {
         Source.fromInputStream(HDFSUtil.readFile(propertyPath))
+      } else if (propertyPath.toLowerCase.startsWith("oss")) {
+        Source.fromInputStream(OssUtil.readFile(propertyPath))
       } else {
         Source.fromURL(getClass.getResource(propertyPath))
       }
@@ -140,8 +142,12 @@ object ETLConfig {
       .map { case (key, value) => key.substring(prefix.length, key.length) -> value }
   }
 
-  def getSparkProperties(jobName: String): Map[String, String] = {
-    getProperties("spark", "default") ++ getProperties("spark", jobName)
+  def getSparkProperties(wfName: String): Map[String, String] = {
+    getProperties("spark", "default") ++ getProperties("spark", wfName)
+  }
+
+  def getFlinkProperties(wfName: String): Map[String, String] = {
+    getProperties("flink", "default") ++ getProperties("flink", wfName)
   }
 
   def getKafkaProperties: String = {
@@ -156,7 +162,7 @@ object ETLConfig {
   }
 
   def setPropertyPath(path: String, env: String = ""): Unit = {
-    Environment.current = env
+    Environment.CURRENT = env
     if (!isNullOrEmpty(path)) {
       propertyPath = path
     } else {
@@ -169,6 +175,7 @@ object ETLConfig {
     val value = this.properties.getProperty(key)
     if (isNullOrEmpty(value)) {
       ETLLogger.error(s"[Config] property key $key was not found in properties file!")
+      //throw new RuntimeException(s"[Config] property key $key was not found in properties file!")
     }
     value
   }
@@ -188,6 +195,5 @@ object ETLConfig {
   lazy val jobTimeColumn: String = ETLConfig.getProperty("etl.default.jobTime.column", "job_time")
   lazy val partitionColumn: String = ETLConfig.getProperty("etl.default.partition.column", "dt")
   lazy val incrementalDiffModeDataLimit: String = ETLConfig.getProperty("etl.default.incrementalDiff.limit", "5000000")
-  lazy val deltaLakeBasePath: String = ETLConfig.getProperty("etl.default.delta.base.path", "/mnt/delta/")
   lazy val purgeHiveTable: String = ETLConfig.getProperty("etl.default.purgeHiveTable", "none")
 }

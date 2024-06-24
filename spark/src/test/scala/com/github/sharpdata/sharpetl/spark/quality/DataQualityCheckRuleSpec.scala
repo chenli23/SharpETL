@@ -16,7 +16,7 @@ class DataQualityCheckRuleSpec extends AnyFlatSpec with should.Matchers with Spa
 
   it should "replace column placeholder with actual name" in {
     BUILT_IN_QUALITY_CHECK_RULES.head.withColumn("name") should be(
-      DataQualityConfig("name", "null check", "powerNullCheck(name)", ErrorType.error)
+      DataQualityConfig("name", "null check", "powerNullCheck(`name`)", ErrorType.error)
     )
   }
 

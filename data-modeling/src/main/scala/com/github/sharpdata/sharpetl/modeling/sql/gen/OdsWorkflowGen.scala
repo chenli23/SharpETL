@@ -10,7 +10,6 @@ import com.github.sharpdata.sharpetl.core.util.Constants.LoadType._
 import com.github.sharpdata.sharpetl.core.util.Constants.WriteMode
 import com.github.sharpdata.sharpetl.core.util.ETLConfig.partitionColumn
 import com.github.sharpdata.sharpetl.modeling.sql.dialect.SqlDialect.{getSqlDialect, quote}
-import com.github.sharpdata.sharpetl.modeling.sql.util.sqlParserTool.getRowFilterAsString
 
 object OdsWorkflowGen {
 
@@ -22,13 +21,12 @@ object OdsWorkflowGen {
 
 
     val dataSourceType = odsModeling.odsTableConfig.sourceType
-    val additionalCols = List(s"$${JOB_ID} AS ${quote("job_id", dataSourceType)}")
+    val additionalCols = List(s"'$${JOB_ID}' AS ${quote("job_id", dataSourceType)}")
     val columns = buildColumnString(odsModeling, additionalCols)
     val sourceDb = quote(odsModeling.odsTableConfig.sourceDb, dataSourceType)
     val sourceTable = quote(odsModeling.odsTableConfig.sourceTable, dataSourceType)
-    val rowFilterExpression = odsModeling.odsTableConfig.filterExpression
-    val rowFilterExpressionSql= getRowFilterAsString(rowFilterExpression,dataSourceType,"ods")
-    val steps = odsModeling.odsTableConfig.updateType match {
+    val rowFilterExpression = if(isNullOrEmpty(odsModeling.odsTableConfig.filterExpression)) "" else "AND " + odsModeling.odsTableConfig.filterExpression
+    val steps = odsModeling.odsTableConfig.loadType match {
       case INCREMENTAL =>
         step.writeMode = if (dataSourceType == HIVE) WriteMode.OVER_WRITE else WriteMode.APPEND
         val filterColumnName = quote(incrColumn(odsModeling), dataSourceType)
@@ -38,7 +36,7 @@ object OdsWorkflowGen {
           s"""|SELECT $columns$partitionClause
               |FROM $sourceDb.$sourceTable
               |WHERE $filterColumnName >= '$${DATA_RANGE_START}' AND $filterColumnName < '$${DATA_RANGE_END}'
-              |$rowFilterExpressionSql
+              |$rowFilterExpression
               |""".stripMargin
         List(step)
       case FULL | DIFF =>
@@ -46,7 +44,7 @@ object OdsWorkflowGen {
         step.sqlTemplate =
           s"""|SELECT $columns,\n '$${DATA_RANGE_START}' AS $partitionColumn
               |FROM $sourceDb.$sourceTable
-              |$rowFilterExpressionSql
+              |$rowFilterExpression
               |""".stripMargin
         List(step)
       case AUTO_INC_ID =>
@@ -57,7 +55,7 @@ object OdsWorkflowGen {
              |SELECT $${DATA_RANGE_START} AS ${quote("lowerBound", dataSourceType)},
              |       MAX(${quote(idColumn, dataSourceType)}) AS ${quote("upperBound", dataSourceType)}
              |FROM $sourceDb.$sourceTable
-             |$rowFilterExpressionSql
+             |$rowFilterExpression
              |""".stripMargin
 
         val stepRead = new WorkflowStep()
@@ -74,14 +72,14 @@ object OdsWorkflowGen {
               |FROM $sourceDb.$sourceTable
               |WHERE ${quote(idColumn, dataSourceType)} > $${lowerBound}
               |  AND ${quote(idColumn, dataSourceType)} <= $${upperBound}
-              |$rowFilterExpressionSql
+              |$rowFilterExpression
               |""".stripMargin
         List(step, stepRead)
     }
     // scalastyle:off
-    Workflow(workflowName, odsModeling.odsTableConfig.period, odsModeling.odsTableConfig.updateType,
-      "timewindow", //TODO: update later
-      null, null, null, 0, null, false, null, Map(), steps
+    Workflow(workflowName, odsModeling.odsTableConfig.period, odsModeling.odsTableConfig.loadType,
+      odsModeling.odsTableConfig.logDrivenType,
+      odsModeling.odsTableConfig.upstream, odsModeling.odsTableConfig.dependsOn, null, 0, odsModeling.odsTableConfig.defaultStart, false, null, Map(), steps
     )
     // scalastyle:on
   }

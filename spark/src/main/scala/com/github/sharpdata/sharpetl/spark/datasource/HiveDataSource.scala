@@ -23,7 +23,7 @@ import scala.jdk.CollectionConverters._
 @sink(types = Array("hive"))
 class HiveDataSource extends Sink[DataFrame] with Source[DataFrame, SparkSession] {
 
-  override def sink(df: DataFrame, step: WorkflowStep, variables: Variables): Unit = {
+  override def write(df: DataFrame, step: WorkflowStep, variables: Variables): Unit = {
     save(df, step.target.asInstanceOf[DBDataSourceConfig].getTableName, step, variables)
   }
 
@@ -48,7 +48,7 @@ class HiveDataSource extends Sink[DataFrame] with Source[DataFrame, SparkSession
     val writeMode: String = step.writeMode
     val dbName = step.target.asInstanceOf[DBDataSourceConfig].dbName
     val resultTempTable = s"$dbName.$uuid"
-    /*if (step.incrementalType == DIFF) {
+    /*if (step.logDrivenType == DIFF) {
       //this column MUST be partition column with name configured by [[com.github.sharpdata.sharpetl.core.util.ETLConfig.partitionColumn]]
       df.withColumn(partitionColumn, lit(variables(partitionColumn)))
     }*/
@@ -194,7 +194,7 @@ class HiveDataSource extends Sink[DataFrame] with Source[DataFrame, SparkSession
 @source(types = Array("temp"))
 @sink(types = Array("temp"))
 class TempDataSource extends HiveDataSource {
-  override def sink(df: DataFrame, step: WorkflowStep, variables: Variables): Unit = {
+  override def write(df: DataFrame, step: WorkflowStep, variables: Variables): Unit = {
     df.createOrReplaceTempView(step.target.asInstanceOf[DBDataSourceConfig].getTableName)
   }
 }

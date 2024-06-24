@@ -104,7 +104,7 @@ abstract class CommonCommand extends Runnable {
 
   @CommandLine.Option(
     names = Array("--property"),
-    description = Array("specify property file location allowed url type [hdfs, file system]"),
+    description = Array("specify property file location allowed url type [hdfs, file system, s3, oss, etc]"),
     required = false
   )
   var propertyPath: String = _
@@ -196,8 +196,8 @@ abstract class CommonCommand extends Runnable {
          |Total memory available to JVM:        ${byteCountToDisplaySize(Runtime.getRuntime.totalMemory())}
          |""".stripMargin)
     ETLLogger.info(s"parameters: ${commandStr.toString()}")
-    Environment.current = env
-    ETLLogger.info(s"Job profile: ${Environment.current}")
+    Environment.CURRENT = env
+    ETLLogger.info(s"Job profile: ${Environment.CURRENT}")
   }
 }
 
@@ -205,10 +205,10 @@ abstract class SingleJobCommand extends CommonCommand {
 
   @CommandLine.Option(
     names = Array("--name"),
-    description = Array("name of the job"),
+    description = Array("name of the workflow"),
     required = true
   )
-  var jobName: String = _
+  var wfName: String = _
 
   @CommandLine.Option(
     names = Array("-h", "--help"),
@@ -218,7 +218,7 @@ abstract class SingleJobCommand extends CommonCommand {
   var helpRequested = false
 
   override def formatCommand(): Unit = {
-    commandStr.append(s"--name=$jobName \t")
+    commandStr.append(s"--name=$wfName \t")
     commandStr.append(s"--help=$helpRequested \t")
     super.formatCommand()
   }
@@ -236,11 +236,11 @@ class ExcelOptions {
 class SqlFileOptions {
   @CommandLine.Option(
     names = Array("-n", "--names"),
-    description = Array("names of the job"),
+    description = Array("names of the workflow"),
     required = true,
     split = ","
   )
-  var jobNames: Array[String] = _
+  var wfNames: Array[String] = _
 }
 
 abstract class BatchJobCommand extends CommonCommand {
@@ -270,7 +270,7 @@ abstract class BatchJobCommand extends CommonCommand {
       commandStr.append(s"--file=$excelOptions.filePath \t")
     }
     if (sqlFileOptions != null) {
-      commandStr.append(s"--names=${sqlFileOptions.jobNames.mkString(",")} \t")
+      commandStr.append(s"--names=${sqlFileOptions.wfNames.mkString(",")} \t")
     }
     commandStr.append(s"--parallelism=$parallelism \t")
     super.formatCommand()

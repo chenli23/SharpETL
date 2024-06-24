@@ -5,20 +5,19 @@ import NoWhitespace._
 import com.fasterxml.jackson.databind.{DeserializationFeature, ObjectMapper}
 import com.fasterxml.jackson.module.scala.DefaultScalaModule
 import com.github.sharpdata.sharpetl.core.datasource.config.{DataSourceConfig, TransformationDataSourceConfig}
-import com.github.sharpdata.sharpetl.core.annotation.AnnotationScanner.{configRegister, defaultConfigType}
+import com.github.sharpdata.sharpetl.core.annotation.AnnotationScanner.{configRegister, defaultConfigType, tempConfig}
 import com.github.sharpdata.sharpetl.core.annotation.Annotations.Experimental
-import com.github.sharpdata.sharpetl.core.exception.Exception.WorkFlowSyntaxException
 import com.github.sharpdata.sharpetl.core.syntax.ParserUtils.{Until, objectMapper, trimSql}
 
 
 object WorkflowParser {
 
-  def key[_: P]: P0 = P(CharIn("a-z", "A-Z", "0-9", "_", "."))
+  def key[$: P]: P0 = P(CharIn("a-z", "A-Z", "0-9", "_", "."))
 
-  def singleLineValue[_: P]: P[String] = Until(newline | End).!
+  def singleLineValue[$: P]: P[String] = Until(newline | End).!
 
-  def multiLineValue[_: P](indent: Int): P[String] =
-    (P("|") ~/ newline ~ Until((anyComment ~ otherPart).! | keyValPair(indent) | End))
+  def multiLineValue[$: P](indent: Int): P[String] =
+    (P("|") ~/ newline ~ Until((anyComment ~ key) | End))
       .map(value => {
         val replace = multiLineStart(indent)
         value.split("\n").map(_.replace(replace, "")).mkString("\n")
@@ -28,41 +27,43 @@ object WorkflowParser {
     "--" + Range.apply(0, indent).map(_ => " ").mkString + "|"
   }
 
-  def newline[_: P]: P0 = P("\n" | "\r\n" | "\r" | "\f")
+  def newline[$: P]: P0 = P("\n" | "\r\n" | "\r" | "\f")
 
-  def newlines[_: P]: P0 = newline.rep
+  def newlines[$: P]: P0 = newline.rep
 
-  def whitespace[_: P]: P0 = P(" " | "\t" | newline)
+  def whitespace[$: P]: P0 = P(" " | "\t" | newline)
 
-  def comment[_: P](indent: Int): P0 = P("--" ~ " ".rep(exactly = indent)) ~ !" "
+  def comment[$: P](indent: Int): P0 = P("--" ~ " ".rep(exactly = indent)) ~ !" "
 
-  def anyComment[_: P]: P0 = P("--" ~ " ".rep)
+  def anyComment[$: P]: P0 = P("--" ~ " ".rep)
 
-  def otherPart[_: P]: P0 = P("step=" | "source=" | "target=" | "args" ~ newline | "options" ~ newline | "conf" ~ newline)
+  def otherPart[$: P]: P0 = P("step=" | "source=" | "target=" | "args" ~ newline | "options" ~ newline | "conf" ~ newline | "loopOver=")
 
-  def keyValPair[_: P](indent: Int): P[(String, String)] =
+  def keyValPair[$: P](indent: Int): P[(String, String)] =
     comment(indent) ~ !otherPart ~ P(key.rep(1).!) ~ "=" ~ P(multiLineValue(indent) | singleLineValue)
 
-  def keyValPairs[_: P](indent: Int): P[Seq[(String, String)]] = keyValPair(indent).rep(sep = newlines)
+  def keyValPairs[$: P](indent: Int): P[Seq[(String, String)]] = keyValPair(indent).rep(sep = newlines)
 
-  def stepHeader[_: P]: P0 = P("-- step=")
+  def stepHeader[$: P]: P0 = P("-- step=")
 
-  def sql[_: P]: P[String] = Until(stepHeader | End)
+  def sql[$: P]: P[String] = Until(stepHeader | End)
 
-  def nestedObj[_: P](objName: String, indent: Int): P[Map[String, String]] = P(
+  def nestedObj[$: P](objName: String, indent: Int): P[Map[String, String]] = P(
     comment(indent) ~ P(objName) ~ newlines
       ~ keyValPairs(indent + 1)
   ).map(_.toMap)
 
-  def notifies[_: P](indent: Int): P[Seq[Map[String, String]]] = notify(indent).rep(sep = newlines)
+  def notifies[$: P](indent: Int): P[Seq[Map[String, String]]] = notify(indent).rep(sep = newlines)
 
-  def notify[_: P](indent: Int): P[Map[String, String]] = nestedObj("notify", indent)
+  def notify[$: P](indent: Int): P[Map[String, String]] = nestedObj("notify", indent)
 
-  def options[_: P](indent: Int): P[Map[String, String]] = nestedObj("options", indent)
+  def options[$: P](indent: Int): P[Map[String, String]] = nestedObj("options", indent)
 
-  def conf[_: P](indent: Int): P[Map[String, String]] = nestedObj("conf", indent)
+  def conf[$: P](indent: Int): P[Map[String, String]] = nestedObj("conf", indent)
 
-  def dataSource[_: P](`type`: String): P[DataSourceConfig] = P(
+  def loopOver[$: P]: P[String] = P("-- loopOver=") ~ singleLineValue.!
+
+  def dataSource[$: P](`type`: String): P[DataSourceConfig] = P(
     s"-- ${`type`}=" ~/ key.rep.! ~ newlines
       ~ keyValPairs(2) ~ newlines
       ~ options(2).?
@@ -76,9 +77,9 @@ object WorkflowParser {
       objectMapper.readValue(json, clazz)
   }
 
-  def args[_: P]: P[(String, String)] = P("--" ~ " ".rep(min = 2, max = 3)) ~ !otherPart ~ P(key.rep(1).!) ~ "=" ~ singleLineValue.!
+  def args[$: P]: P[(String, String)] = P("--" ~ " ".rep(min = 2, max = 3)) ~ !otherPart ~ P(key.rep(1).!) ~ "=" ~ singleLineValue.!
 
-  def transformer[_: P](`type`: String): P[DataSourceConfig] = P(
+  def transformer[$: P](`type`: String): P[DataSourceConfig] = P(
     s"-- ${`type`}=transformation" ~/ newlines
       ~ args.rep(sep = newlines)
   ).map { kv =>
@@ -93,22 +94,23 @@ object WorkflowParser {
     objectMapper.readValue(json, classOf[TransformationDataSourceConfig])
   }
 
-  def steps[_: P]: P[Seq[WorkflowStep]] = step.rep(sep = newlines, min = 1)
+  def steps[$: P]: P[Seq[WorkflowStep]] = step.rep(sep = newlines, min = 1)
 
-  def step[_: P]: P[WorkflowStep] = P(
+  def step[$: P]: P[WorkflowStep] = P(
     newlines ~ stepHeader ~ singleLineValue ~ newlines
-      ~ P(transformer("source") | dataSource("source")) ~ newlines
+      ~ P(transformer("source") | dataSource("source")).? ~ newlines
       ~ P(transformer("target") | dataSource("target")) ~ newlines
       ~ keyValPairs(1).? ~ newlines
       ~ conf(1).? ~ newlines
+      ~ loopOver.? ~ newlines
       ~ sql
   ).map {
     // scalastyle:off
-    case (step, source, target, kv, conf, sql) =>
+    case (step, sourceOptional, target, kv, conf, loopOverOptional, sql) =>
       val map = kv.getOrElse(Seq()).toMap
       val workflowStep = new WorkflowStep
       workflowStep.step = step
-      workflowStep.source = source
+      workflowStep.source = sourceOptional.getOrElse(tempConfig)
       workflowStep.target = target
       workflowStep.sqlTemplate = trimSql(sql)
       workflowStep.persist = map.getOrElse("persist", null)
@@ -116,6 +118,7 @@ object WorkflowParser {
       workflowStep.writeMode = map.getOrElse("writeMode", null)
       workflowStep.skipFollowStepWhenEmpty = map.getOrElse("skipFollowStepWhenEmpty", null) //TODO: drop this later
       workflowStep.conf = conf.getOrElse(Map())
+      workflowStep.loopOver = loopOverOptional.orNull
       workflowStep
     //      WorkflowStep(step, source, target, sql.map(_.trim),
     //        map.getOrElse("persist", null), map.getOrElse("checkpoint", null),
@@ -125,7 +128,7 @@ object WorkflowParser {
   }
 
 
-  def workflow[_: P]: P[Workflow]
+  def workflow[$: P]: P[Workflow]
   = P(
     Start
       ~ whitespace.rep
@@ -174,61 +177,3 @@ private object ParserUtils {
     }
   }
 }
-
-sealed trait WFParseResult {
-  def isSuccess: Boolean
-
-  def get: Workflow
-}
-
-case class WFParseSuccess(wf: Workflow) extends WFParseResult {
-  override def isSuccess: Boolean = true
-
-  override def get: Workflow = wf
-}
-
-case class WFParseFail(parsed: Parsed.Failure) extends WFParseResult {
-  override def toString: String = {
-    parsed match {
-      case Parsed.Failure(label, failIndex, extra) =>
-        val trace = extra.trace()
-        val last = trace.stack.last
-        val input: ParserInput = trace.input
-        val pair = input.prettyIndex(last._2).split(":")
-        val row = pair.head.toInt
-        val col = pair.tail.head.toInt
-
-        val line = {
-          val lines = trace.input.asInstanceOf[IndexedParserInput].data.split("\n")
-          if (lines.size <= row) {
-            lines.last
-          } else {
-            lines(row - 1)
-          }
-        }
-        val offending =
-          s"${row.toString map { _ => ' ' }}|${" " * (col - 1)}^"
-        s"""$row:$col: error: ${description(input, trace.stack, failIndex)}
-           |$row|$line
-           |$offending""".stripMargin
-    }
-  }
-
-  def description(input: ParserInput, stack: List[(String, Int)], index: Int): String = {
-    s"""Expected parse by `${stack.reverse.head._1}` at ${input.prettyIndex(stack.reverse.head._2)}, but found ${formatTrailing(input, index)}.
-       |Parse stack is ${formatStack(input, stack)}""".stripMargin
-  }
-
-  def formatStack(input: ParserInput, stack: List[(String, Int)]): String = {
-    stack.map { case (s, i) => s"$s:${input.prettyIndex(i)}" }.mkString(" / ")
-  }
-
-  def formatTrailing(input: ParserInput, index: Int): String = {
-    fastparse.internal.Util.literalize(input.slice(index, index + 10))
-  }
-
-  override def isSuccess: Boolean = false
-
-  override def get: Workflow = throw WorkFlowSyntaxException(this.toString)
-}
-

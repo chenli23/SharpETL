@@ -1,21 +1,20 @@
 package com.github.sharpdata.sharpetl.core.repository
 
 import com.github.sharpdata.sharpetl.core.repository.model.JobLog
-import com.github.sharpdata.sharpetl.core.repository.model.JobLog
 import com.github.sharpdata.sharpetl.core.util.{Constants, JDBCUtil}
 
 import java.time.LocalDateTime
 
 abstract class JobLogAccessor() {
-  def lastSuccessExecuted(jobName: String): JobLog
+  def lastSuccessExecuted(workflowName: String): JobLog
 
-  def lastExecuted(jobName: String): JobLog
+  def lastExecuted(workflowName: String): JobLog
 
   def executionsBetween(startTime: LocalDateTime, endTime: LocalDateTime): Array[JobLog]
 
-  def executionsLastYear(jobName: String): Array[JobLog]
+  def executionsLastYear(workflowName: String): Array[JobLog]
 
-  def isAnotherJobRunning(jobScheduleId: String): JobLog
+  def isAnotherJobRunning(jobName: String): JobLog
 
   def create(jobLog: JobLog): Unit = {
     jobLog.jobStartTime = LocalDateTime.now()
@@ -31,11 +30,11 @@ abstract class JobLogAccessor() {
     jobLog.lastUpdateTime = LocalDateTime.now()
   }
 
-  def getLatestSuccessJobLogByNames(jobNames: Array[String]): Array[JobLog]
+  def getLatestSuccessJobLogByNames(wfNames: Array[String]): Array[JobLog]
 
   def getPreviousJobLog(jobLog: JobLog): JobLog
 
-  def getUnprocessedUpstreamJobLog(upstreamJobName: String, upstreamLogId: BigInt): Array[JobLog]
+  def getUnprocessedUpstreamJobLog(upstreamWFName: String, upstreamLogId: BigInt): Array[JobLog]
 }
 
 object JobLogAccessor {
@@ -46,6 +45,8 @@ object JobLogAccessor {
       case Constants.ETLDatabaseType.MSSQL => new com.github.sharpdata.sharpetl.core.repository.mssql.JobLogAccessor()
       case Constants.ETLDatabaseType.H2 => new com.github.sharpdata.sharpetl.core.repository.mysql.JobLogAccessor()
       case Constants.ETLDatabaseType.MYSQL => new com.github.sharpdata.sharpetl.core.repository.mysql.JobLogAccessor()
+      case Constants.ETLDatabaseType.SPARK_SHARP_ETL => new com.github.sharpdata.sharpetl.core.repository.spark.JobLogAccessor()
+      case Constants.ETLDatabaseType.FLINK_SHARP_ETL => new com.github.sharpdata.sharpetl.core.repository.flink.JobLogAccessor()
     }
   }
 }

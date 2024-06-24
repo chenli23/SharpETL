@@ -7,6 +7,10 @@ object JDBCUtil {
       Constants.ETLDatabaseType.MSSQL
     } else if (jdbcUrl.contains("jdbc:h2")) {
       Constants.ETLDatabaseType.H2
+    } else if (jdbcUrl.contains("spark_sharp_etl")) {
+      Constants.ETLDatabaseType.SPARK_SHARP_ETL
+    } else if (jdbcUrl.contains("flink_sharp_etl")) {
+      Constants.ETLDatabaseType.FLINK_SHARP_ETL
     } else {
       Constants.ETLDatabaseType.MYSQL
     }

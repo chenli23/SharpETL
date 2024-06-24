@@ -7,14 +7,14 @@ plugins {
 
 group = 'com.github.sharpdata.sharpetl'
 sourceCompatibility = 1.8
-version = '0.1.0'
+version = '0.2.0'
 
 dependencies {
     implementation "org.scala-lang:scala-compiler:$scalaCompt"
     implementation "org.scala-lang:scala-library:$scalaCompt"
     implementation "org.scala-lang:scala-reflect:$scalaCompt"
     implementation "org.scala-lang.modules:scala-collection-compat_$scalaVersion:2.6.0"
-    implementation "com.lihaoyi:fastparse_$scalaVersion:2.3.3"
+    implementation "com.lihaoyi:fastparse_$scalaVersion:3.0.0"
     implementation 'io.github.classgraph:classgraph:4.8.149'
     implementation group: "log4j", name: "log4j", version: "1.2.17"
     if (sparkVersion.startsWith("3")) {
@@ -34,15 +34,26 @@ dependencies {
     implementation "joda-time:joda-time:2.9.9"
     implementation "org.mybatis:mybatis:3.5.9"
     implementation 'com.zaxxer:HikariCP:2.6.1'
-    implementation 'org.flywaydb:flyway-core:7.14.0'
+    implementation('io.github.coolbeevip:flyway-core:9.15.2.2') {
+        exclude group: 'com.fasterxml.jackson.dataformat', module: 'jackson-dataformat-toml'
+    }
+    implementation('io.github.coolbeevip:flyway-mysql:9.15.2.2') {
+        exclude group: 'com.fasterxml.jackson.dataformat', module: 'jackson-dataformat-toml'
+    }
     implementation group: 'org.apache.poi', name: 'poi', version: '4.1.0'
     implementation group: 'org.apache.poi', name: 'poi-ooxml', version: '4.1.0'
     implementation 'org.apache.commons:commons-lang3:3.10'
     implementation 'info.picocli:picocli:4.6.3'
 
-    implementation "io.circe:circe-yaml_$scalaVersion:0.11.0-M1"
-    implementation "io.circe:circe-generic_$scalaVersion:0.12.0-M3"
-    implementation "io.circe:circe-generic-extras_$scalaVersion:0.12.0-M3"
+    if (sparkVersion.startsWith("3.5")) {
+        implementation "io.circe:circe-yaml_$scalaVersion:0.15.0-RC1"
+        implementation "io.circe:circe-generic_$scalaVersion:0.15.0-M1"
+        implementation "io.circe:circe-generic-extras_$scalaVersion:0.14.3"
+    } else {
+        implementation "io.circe:circe-yaml_$scalaVersion:0.11.0-M1"
+        implementation "io.circe:circe-generic_$scalaVersion:0.12.0-M3"
+        implementation "io.circe:circe-generic-extras_$scalaVersion:0.12.0-M3"
+    }
     compileOnly 'org.projectlombok:lombok:1.18.22'
     annotationProcessor 'org.projectlombok:lombok:1.18.22'
     // https://mvnrepository.com/artifact/com.jcraft/jsch
@@ -51,6 +62,7 @@ dependencies {
     implementation group: 'javax.mail', name: 'mail', version: '1.4.7'
     // encrypte properties file
     api 'org.jasypt:jasypt:1.9.3'
+    implementation 'com.aliyun.oss:aliyun-sdk-oss:3.16.0'
 
 
     if (sparkVersion.startsWith("3.1") || sparkVersion.startsWith("3.0")) {
@@ -69,6 +81,18 @@ dependencies {
         implementation("com.fasterxml.jackson.module:jackson-module-scala_$scalaVersion") {
             version {
                 strictly '2.13.3'
+            }
+        }
+    }  else if (sparkVersion.startsWith("3.4")) {
+        implementation("com.fasterxml.jackson.module:jackson-module-scala_$scalaVersion") {
+            version {
+                strictly '2.14.2'
+            }
+        }
+    } else if (sparkVersion.startsWith("3.5")) {
+        implementation("com.fasterxml.jackson.module:jackson-module-scala_$scalaVersion") {
+            version {
+                strictly '2.15.2'
             }
         }
     } else {

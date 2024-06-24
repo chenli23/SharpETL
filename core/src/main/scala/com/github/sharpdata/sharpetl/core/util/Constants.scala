@@ -11,18 +11,20 @@ object Constants {
   }
 
   object Environment {
-    var current: String = _
+    var CURRENT: String = _
     val LOCAL = "local"
     val DEV = "dev"
     val QA = "qa"
     val PROD = "prod"
     val TEST = "test"
+    val EMBEDDED_HIVE = "embedded-hive"
   }
 
   object PathPrefix {
     val FILE = ""
     val HDFS = "hdfs"
     val DBFS = "dbfs"
+    val OSS = "oss"
   }
 
   object Encoding {
@@ -37,14 +39,16 @@ object Constants {
   }
 
   object BooleanString {
-    val TRUE = "true"
-    val FALSE = "false"
+    val TRUE = true.toString
+    val FALSE = false.toString
   }
 
   object ETLDatabaseType {
     val MYSQL = "mysql"
     val MSSQL = "mssql"
     val H2 = "h2"
+    val SPARK_SHARP_ETL = "spark_sharp_etl"
+    val FLINK_SHARP_ETL = "flink_sharp_etl"
   }
 
   object DataSourceType extends Serializable {

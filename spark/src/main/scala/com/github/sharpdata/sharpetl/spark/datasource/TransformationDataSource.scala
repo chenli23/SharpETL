@@ -21,8 +21,8 @@ class TransformationDataSource extends Source[DataFrame, SparkSession] with Sink
 
     val start = "dataRangeStart" -> variables.getOrElse("${DATA_RANGE_START}", "")
     val end = "dataRangeEnd" -> variables.getOrElse("${DATA_RANGE_END}", "")
-    val jobId = "jobId" -> variables.getOrElse("${JOB_ID}", "")
-    val jobName = "jobName" -> variables.getOrElse("${JOB_NAME}", "")
+    val jobId = "jobId" -> variables.getOrElse("'${JOB_ID}'", "")
+    val jobName = "workflowName" -> variables.getOrElse("${JOB_NAME}", "")
     val jobTime = "jobTime" -> Timestamp.from(Instant.now()).toString
     val sql = "sql" -> step.sql
 
@@ -35,7 +35,7 @@ class TransformationDataSource extends Source[DataFrame, SparkSession] with Sink
       .asInstanceOf[DataFrame]
   }
 
-  override def sink(df: DataFrame, step: WorkflowStep, variables: Variables): Unit = {
+  override def write(df: DataFrame, step: WorkflowStep, variables: Variables): Unit = {
     val targetConfig = step.getTargetConfig[TransformationDataSourceConfig]
 
     ReflectUtil

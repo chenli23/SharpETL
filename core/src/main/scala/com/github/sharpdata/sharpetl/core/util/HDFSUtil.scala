@@ -95,14 +95,14 @@ object HDFSUtil {
 
   def readLines(path: String): List[String] = {
     val fs = getFileSystem()
-    val lines = readLines(fs, new Path(path))
+    val lines = readInputStreamInToLines(fs.open(new Path(path)), path)
     closeFileSystem(fs)
     lines
   }
 
-  def readLines(fs: FileSystem, path: Path): List[String] = {
+  def readInputStreamInToLines(in: InputStream, path: String): List[String] = {
     val bufferedReader = try {
-      new BufferedReader(new InputStreamReader(fs.open(path)))
+      new BufferedReader(new InputStreamReader(in))
     } catch {
       case e: IOException =>
         ETLLogger.error(s"Open InputStreamReader with path $path failed.", e)
@@ -288,8 +288,8 @@ object HDFSUtil {
 
     val dataSourceConfig = step.getSourceConfig[RemoteFileDataSourceConfig]
     val hdfsPaths = ListBuffer[String]()
-    if (!isNullOrEmpty(jobLog.currentFile)) {
-      jobLog.currentFile.split(",")
+    if (!isNullOrEmpty(jobLog.file)) {
+      jobLog.file.split(",")
         .foreach(fileName => {
           val hdfsFilePath = StringUtil.concatFilePath(dataSourceConfig.hdfsDir, fileName)
           HDFSUtil.moveFromLocal(
@@ -330,7 +330,7 @@ object HDFSUtil {
       }
       ETLLogger.warn("No files need download, and current config `breakFollowStepWhenEmpty` is false, so the job will continue the next steps.")
     } else {
-      jobLog.currentFile = fileNames.mkString(",")
+      jobLog.file = fileNames.mkString(",")
       ETLLogger.info("Downloaded file to local")
     }
   }

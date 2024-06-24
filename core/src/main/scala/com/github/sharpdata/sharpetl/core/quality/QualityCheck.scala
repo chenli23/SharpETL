@@ -1,18 +1,15 @@
 package com.github.sharpdata.sharpetl.core.quality
 
 import com.github.sharpdata.sharpetl.core.annotation.Annotations.Stable
-import com.github.sharpdata.sharpetl.core.repository.QualityCheckAccessor
-import com.github.sharpdata.sharpetl.core.syntax.WorkflowStep
-import com.github.sharpdata.sharpetl.core.util.ETLLogger
-import com.google.common.base.Strings.isNullOrEmpty
 import com.github.sharpdata.sharpetl.core.exception.Exception.DataQualityCheckRuleMissingException
 import com.github.sharpdata.sharpetl.core.quality.QualityCheck._
 import com.github.sharpdata.sharpetl.core.repository.QualityCheckAccessor
 import com.github.sharpdata.sharpetl.core.repository.model.QualityCheckLog
 import com.github.sharpdata.sharpetl.core.syntax.WorkflowStep
 import com.github.sharpdata.sharpetl.core.util.ReflectUtil.reflectObjectMethod
-import com.github.sharpdata.sharpetl.core.util.StringUtil.uuidName
 import com.github.sharpdata.sharpetl.core.util.{ETLLogger, StringUtil}
+import com.github.sharpdata.sharpetl.core.util.StringUtil.uuidName
+import com.google.common.base.Strings.isNullOrEmpty
 
 // scalastyle:off
 case class CheckResult[DataFrame](warn: Seq[DataQualityCheckResult], error: Seq[DataQualityCheckResult], passed: DataFrame)
@@ -35,7 +32,7 @@ trait QualityCheck[DataFrame] extends Serializable {
   val dataQualityCheckRules: Map[String, QualityCheckRule]
   val qualityCheckAccessor: QualityCheckAccessor
 
-  def qualityCheck(step: WorkflowStep, jobId: Long, jobScheduleId: String,
+  def qualityCheck(step: WorkflowStep, jobId: String, jobScheduleId: String,
                    df: DataFrame): CheckResult[DataFrame] = {
     val idColumn = step.source.options.getOrElse("idColumn", "id")
     val sortColumn = step.source.options.getOrElse("sortColumn", "")
@@ -102,7 +99,7 @@ trait QualityCheck[DataFrame] extends Serializable {
       .toSeq
 
 
-  def recordCheckResult(jobId: Long, jobScheduleId: String, results: Seq[DataQualityCheckResult]): Unit = {
+  def recordCheckResult(jobId: String, jobScheduleId: String, results: Seq[DataQualityCheckResult]): Unit = {
     results
       .filter(it => it.warnCount > 0 || it.errorCount > 0)
       .map(it =>
@@ -162,12 +159,64 @@ trait QualityCheck[DataFrame] extends Serializable {
   def dropView(tempViewName: String): Unit
 
   def dropUnusedCols(df: DataFrame, cols: String): DataFrame
-}
-// scalastyle:on
 
-object QualityCheck {
-  val DELIMITER = "__"
-  val DEFAULT_TOP_N = 1000
+  def windowByPkSql(tempViewName: String, idColumns: String, sortColumns: String = "", desc: Boolean = true): String = {
+    s"""
+       |SELECT *
+       |FROM (SELECT *, ROW_NUMBER()
+       |      OVER (PARTITION BY $idColumns
+       |      ORDER BY ${if (isNullOrEmpty(sortColumns)) "1" else sortColumns} ${if (desc) "DESC" else "ASC"}) as __row_num
+       |      FROM $tempViewName
+       |) WHERE __row_num = 1""".stripMargin
+  }
+
+
+  def windowByPkSqlErrors(tempViewName: String, idColumns: String, sortColumns: String = "", desc: Boolean = true): String = {
+    s"""
+       |SELECT ${joinIdColumns(idColumns)} as id,
+       |        ARRAY('Duplicated PK check$DELIMITER$idColumns') as error_result
+       |FROM (SELECT *, ROW_NUMBER()
+       |      OVER (PARTITION BY $idColumns
+       |      ORDER BY ${if (isNullOrEmpty(sortColumns)) "1" else sortColumns} ${if (desc) "DESC" else "ASC"}) as __row_num
+       |      FROM $tempViewName
+       |) WHERE __row_num > 1""".stripMargin
+  }
+
+  def generateErrorUnions(dataQualityCheckMapping: Seq[DataQualityConfig], topN: Int, view: String): String = {
+    dataQualityCheckMapping
+      .filter(_.errorType == ErrorType.error)
+      .map(it =>
+        s"""(SELECT
+           |    "${it.column}" as column,
+           |    "${it.dataCheckType}" as dataCheckType,
+           |    arrayJoin(top(collect_list(string(id)), $topN), ',') as ids,
+           |    "${it.errorType}" as errorType,
+           |    0 as warnCount,
+           |    count(*) as errorCount
+           |FROM `$view`
+           |WHERE array_contains(error_result, "${it.dataCheckType}${DELIMITER}${it.column}")
+           |)""".stripMargin
+      )
+      .mkString("\nUNION ALL\n")
+  }
+
+  def generateWarnUnions(dataQualityCheckMapping: Seq[DataQualityConfig], topN: Int, view: String): String = {
+    dataQualityCheckMapping
+      .filter(_.errorType == ErrorType.warn)
+      .map(it =>
+        s"""(SELECT
+           |    "${it.column}" as column,
+           |    "${it.dataCheckType}" as dataCheckType,
+           |    arrayJoin(top(collect_list(string(id)), $topN), ',') as ids,
+           |    "${it.errorType}" as errorType,
+           |    count(*) as warnCount,
+           |    0 as errorCount
+           |FROM `$view`
+           |WHERE array_contains(warn_result, "${it.dataCheckType}${DELIMITER}${it.column}")
+           |)""".stripMargin
+      )
+      .mkString("\nUNION ALL\n")
+  }
 
   def checkSql(tempViewName: String, resultView: String, dataQualityCheckMapping: Seq[DataQualityConfig], idColumn: String): String = {
     s"""
@@ -180,6 +229,72 @@ object QualityCheck {
        |FROM `$tempViewName`
       """.stripMargin
   }
+
+  def udrWarnSql(topN: Int, udrWithViews: Seq[(DataQualityConfig, String)])
+  : String = {
+    if (udrWithViews.isEmpty) {
+      StringUtil.EMPTY
+    } else {
+      udrWithViews.map { case (udr, viewName) =>
+          s"""
+             |(SELECT "${udr.column}" as column,
+             |    "${udr.dataCheckType}" as dataCheckType,
+             |    arrayJoin(top(collect_list(string(id)), $topN), ',') as ids,
+             |    "${udr.errorType}" as errorType,
+             |    count(*) as warnCount,
+             |    0 as errorCount
+             |FROM $viewName)
+             |""".stripMargin
+        }
+        .mkString("\nUNION ALL\n")
+    }
+  }
+
+  def udrErrorSql(topN: Int, udrWithViews: Seq[(DataQualityConfig, String)])
+  : String = {
+    if (udrWithViews.isEmpty) {
+      StringUtil.EMPTY
+    } else {
+      udrWithViews.map { case (udr, viewName) =>
+          s"""
+             |(SELECT "${udr.column}" as column,
+             |    "${udr.dataCheckType}" as dataCheckType,
+             |    arrayJoin(top(collect_list(string(id)), $topN), ',') as ids,
+             |    "${udr.errorType}" as errorType,
+             |    0 as warnCount,
+             |    count(*) as errorCount
+             |FROM $viewName)
+             |""".stripMargin
+        }
+        .mkString("\nUNION ALL\n")
+    }
+  }
+
+
+  def antiJoinSql(idColumn: String, tempViewName: String, resultView: String): String = {
+    s"""|LEFT ANTI JOIN (
+        |  SELECT id FROM `$resultView`
+        |       WHERE size(error_result) > 0
+        |) bad_ids ON bad_ids.id = ${joinIdColumns(idColumn, tempViewName)}
+      """.stripMargin
+  }
+
+  def udrAntiJoinSql(idColumn: String, tempViewName: String, viewNames: Seq[String]): String = {
+    if (viewNames.isEmpty) {
+      StringUtil.EMPTY
+    } else {
+      s"""|LEFT ANTI JOIN (
+          |${viewNames.map(view => s"SELECT id FROM $view").mkString("\nUNION ALL\n")}
+          |) udr_bad_ids ON udr_bad_ids.id = ${joinIdColumns(idColumn, tempViewName)}
+          |""".stripMargin
+    }
+  }
+}
+// scalastyle:on
+
+object QualityCheck {
+  val DELIMITER = "__"
+  val DEFAULT_TOP_N = 1000
 
   def emptyArrayIfMissing(query: String): String = {
     if (query.trim == "") {
@@ -205,42 +320,6 @@ object QualityCheck {
     )
   }
 
-  def generateWarnUnions(dataQualityCheckMapping: Seq[DataQualityConfig], topN: Int, view: String): String = {
-    dataQualityCheckMapping
-      .filter(_.errorType == ErrorType.warn)
-      .map(it =>
-        s"""(SELECT
-           |    "${it.column}" as column,
-           |    "${it.dataCheckType}" as dataCheckType,
-           |    arrayJoin(top(collect_list(string(id)), $topN), ',') as ids,
-           |    "${it.errorType}" as errorType,
-           |    count(*) as warnCount,
-           |    0 as errorCount
-           |FROM `$view`
-           |WHERE array_contains(warn_result, "${it.dataCheckType}${DELIMITER}${it.column}")
-           |)""".stripMargin
-      )
-      .mkString("\nUNION ALL\n")
-  }
-
-  def generateErrorUnions(dataQualityCheckMapping: Seq[DataQualityConfig], topN: Int, view: String): String = {
-    dataQualityCheckMapping
-      .filter(_.errorType == ErrorType.error)
-      .map(it =>
-        s"""(SELECT
-           |    "${it.column}" as column,
-           |    "${it.dataCheckType}" as dataCheckType,
-           |    arrayJoin(top(collect_list(string(id)), $topN), ',') as ids,
-           |    "${it.errorType}" as errorType,
-           |    0 as warnCount,
-           |    count(*) as errorCount
-           |FROM `$view`
-           |WHERE array_contains(error_result, "${it.dataCheckType}${DELIMITER}${it.column}")
-           |)""".stripMargin
-      )
-      .mkString("\nUNION ALL\n")
-  }
-
   def joinIdColumns(idColumn: String, prefix: String = ""): String = {
     val realPrefix = if (isNullOrEmpty(prefix)) "" else s"`$prefix`."
     if (idColumn.contains(",")) {
@@ -256,65 +335,6 @@ object QualityCheck {
     }.mkString(" AND \n\t")
   }
 
-  def antiJoinSql(idColumn: String, tempViewName: String, resultView: String): String = {
-    s"""|LEFT ANTI JOIN (
-        |  SELECT id FROM `$resultView`
-        |       WHERE size(error_result) > 0
-        |) bad_ids ON bad_ids.id = ${joinIdColumns(idColumn, tempViewName)}
-      """.stripMargin
-  }
-
-  def udrWarnSql(topN: Int, udrWithViews: Seq[(DataQualityConfig, String)])
-  : String = {
-    if (udrWithViews.isEmpty) {
-      StringUtil.EMPTY
-    } else {
-      udrWithViews.map { case (udr, viewName) =>
-        s"""
-           |(SELECT "${udr.column}" as column,
-           |    "${udr.dataCheckType}" as dataCheckType,
-           |    arrayJoin(top(collect_list(string(id)), $topN), ',') as ids,
-           |    "${udr.errorType}" as errorType,
-           |    count(*) as warnCount,
-           |    0 as errorCount
-           |FROM $viewName)
-           |""".stripMargin
-      }
-        .mkString("\nUNION ALL\n")
-    }
-  }
-
-  def udrErrorSql(topN: Int, udrWithViews: Seq[(DataQualityConfig, String)])
-  : String = {
-    if (udrWithViews.isEmpty) {
-      StringUtil.EMPTY
-    } else {
-      udrWithViews.map { case (udr, viewName) =>
-        s"""
-           |(SELECT "${udr.column}" as column,
-           |    "${udr.dataCheckType}" as dataCheckType,
-           |    arrayJoin(top(collect_list(string(id)), $topN), ',') as ids,
-           |    "${udr.errorType}" as errorType,
-           |    0 as warnCount,
-           |    count(*) as errorCount
-           |FROM $viewName)
-           |""".stripMargin
-      }
-        .mkString("\nUNION ALL\n")
-    }
-  }
-
-  def udrAntiJoinSql(idColumn: String, tempViewName: String, viewNames: Seq[String]): String = {
-    if (viewNames.isEmpty) {
-      StringUtil.EMPTY
-    } else {
-      s"""|LEFT ANTI JOIN (
-          |${viewNames.map(view => s"SELECT id FROM $view").mkString("\nUNION ALL\n")}
-          |) udr_bad_ids ON udr_bad_ids.id = ${joinIdColumns(idColumn, tempViewName)}
-          |""".stripMargin
-    }
-  }
-
   def generateAntiJoinSql(sql: String, udrSql: String, tempViewName: String): String = {
     if (isNullOrEmpty(sql) && isNullOrEmpty(udrSql)) {
       s"""SELECT * FROM `$tempViewName`"""
@@ -324,26 +344,5 @@ object QualityCheck {
           |$udrSql
        """.stripMargin
     }
-  }
-
-  def windowByPkSql(tempViewName: String, idColumns: String, sortColumns: String = "", desc: Boolean = true): String = {
-    s"""
-       |SELECT *
-       |FROM (SELECT *, ROW_NUMBER()
-       |      OVER (PARTITION BY $idColumns
-       |      ORDER BY ${if (isNullOrEmpty(sortColumns)) "1" else sortColumns} ${if (desc) "DESC" else "ASC"}) as __row_num
-       |      FROM $tempViewName
-       |) WHERE __row_num = 1""".stripMargin
-  }
-
-  def windowByPkSqlErrors(tempViewName: String, idColumns: String, sortColumns: String = "", desc: Boolean = true): String = {
-    s"""
-       |SELECT ${joinIdColumns(idColumns)} as id,
-       |        ARRAY('Duplicated PK check$DELIMITER$idColumns') as error_result
-       |FROM (SELECT *, ROW_NUMBER()
-       |      OVER (PARTITION BY $idColumns
-       |      ORDER BY ${if (isNullOrEmpty(sortColumns)) "1" else sortColumns} ${if (desc) "DESC" else "ASC"}) as __row_num
-       |      FROM $tempViewName
-       |) WHERE __row_num > 1""".stripMargin
   }
 }

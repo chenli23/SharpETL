@@ -1,6 +1,6 @@
 package com.github.sharpdata.sharpetl.core.notification
 
-import com.github.sharpdata.sharpetl.core.api.WFInterpretingResult
+import com.github.sharpdata.sharpetl.core.api.WfEvalResult
 import com.github.sharpdata.sharpetl.core.notification.sender.{NotificationFactory, NotificationType}
 import com.github.sharpdata.sharpetl.core.repository.JobLogAccessor
 import com.github.sharpdata.sharpetl.core.repository.model.{JobLog, JobStatus}
@@ -19,7 +19,7 @@ class NotificationUtil(val jobLogAccessor: JobLogAccessor) {
   lazy val emailSenderPersonalName: String = ETLConfig.getProperty("notification.email.senderPersonalName")
   lazy val summaryJobReceivers: String = ETLConfig.getProperty("notification.email.summaryReceivers")
 
-  def notify(jobResults: Seq[WFInterpretingResult]): Unit = {
+  def notify(jobResults: Seq[WfEvalResult]): Unit = {
     val configToLogs: Seq[(NotifyConfig, Seq[JobLog])] =
       jobResults
         .filterNot(it => it.workflow.notifies == null || it.workflow.notifies.isEmpty)
@@ -47,7 +47,7 @@ class NotificationUtil(val jobLogAccessor: JobLogAccessor) {
           val notification = it._1.notifyType match {
             case NotificationType.EMAIL =>
               new Email(Sender(emailSender, emailSenderPersonalName),
-                it._1.recipient, s"[${Environment.current.toUpperCase}] ETL job summary report", messages)
+                it._1.recipient, s"[${Environment.CURRENT.toUpperCase}] ETL job summary report", messages)
             case _ => ???
           }
           NotificationFactory.sendNotification(notification)
@@ -70,7 +70,7 @@ class NotificationUtil(val jobLogAccessor: JobLogAccessor) {
 
     JobMessage(
       jobId = jobLog.jobId,
-      jobName = jobLog.jobName,
+      jobName = jobLog.workflowName,
       jobRangeStart = scala.util.Try(LocalDateTime.parse(jobLog.dataRangeStart, YYYYMMDDHHMMSS)) match {
         case scala.util.Failure(_) => jobLog.dataRangeStart
         case scala.util.Success(value) => value.format(L_YYYY_MM_DD_HH_MM_SS)
@@ -91,7 +91,7 @@ class NotificationUtil(val jobLogAccessor: JobLogAccessor) {
   }
 }
 
-final case class JobMessage(jobId: Long,
+final case class JobMessage(jobId: String,
                             jobName: String,
                             jobRangeStart: String,
                             jobRangeEnd: String,
@@ -109,7 +109,7 @@ final case class JobMessage(jobId: Long,
       s"""
          |projectName: $projectName,
          |jobId: $jobId,
-         |jobName: $jobName,
+         |workflowName: $jobName,
          |jobRangeStart: $jobRangeStart,
          |jobRangeEnd: $jobRangeEnd,
          |jobStatus: $jobStatus,

@@ -6,7 +6,6 @@ import com.github.sharpdata.sharpetl.core.datasource.config.DBDataSourceConfig
 import com.github.sharpdata.sharpetl.core.quality.{DataQualityCheckResult, ErrorType, QualityCheckRule}
 import com.github.sharpdata.sharpetl.core.repository.mysql.QualityCheckAccessor
 import com.github.sharpdata.sharpetl.core.syntax.WorkflowStep
-import com.github.sharpdata.sharpetl.spark.job.{SparkSessionTestWrapper, SparkWorkflowInterpreter}
 import org.apache.spark.sql.{Row, SparkSession}
 import org.apache.spark.sql.types._
 import org.scalatest.flatspec.AnyFlatSpec
@@ -63,7 +62,7 @@ class DataQualityCheckUDRSpec extends AnyFlatSpec with should.Matchers with Spar
     //val udrResult = interpreter.checkUDR(testDf, viewName, interpreter.parseQualityConfig(step), "id, phone", 2)
     //val result = sqlResult union udrResult
 
-    val result = interpreter.qualityCheck(step, 1, "???", testDf)
+    val result = interpreter.qualityCheck(step, "1", "???", testDf)
 
     val errors = result.error
     val warns = result.warn
@@ -106,6 +105,6 @@ class DataQualityCheckUDRSpec extends AnyFlatSpec with should.Matchers with Spar
 final class SparkWorkflowInterpreterStub(override val spark: SparkSession,
                                          override val dataQualityCheckRules: Map[String, QualityCheckRule])
   extends SparkWorkflowInterpreter(spark, dataQualityCheckRules, new QualityCheckAccessor()) {
-  override def recordCheckResult(jobId: Long, jobScheduleId: String, results: Seq[DataQualityCheckResult]): Unit = ()
+  override def recordCheckResult(jobId: String, jobScheduleId: String, results: Seq[DataQualityCheckResult]): Unit = ()
 }
 
